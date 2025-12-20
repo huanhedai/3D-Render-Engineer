@@ -1,5 +1,5 @@
 # Visual Studio 相关文件（必加）
-.vs/                # VS 的缓存目录（包含 .ipch 文件）
+.vs/**/*                # VS 的缓存目录（包含 .ipch 文件）
 *.ipch              # 单独忽略所有 .ipch 文件
 obj/                # 编译生成的目标文件目录
 bin/                # 编译生成的可执行文件目录
@@ -9,11 +9,7 @@ Release/            # 发布目录
 *.sdf               # VS 数据库文件
 
 # 忽略当前目录下的 out 文件夹（及其所有内容）
-out/    # 斜杠 / 是关键：它表示 “这是一个目录”, Git 会忽略当前目录下名为 out 的整个文件夹
+out/**/*
 
 # 忽略 resource/ 下所有子文件夹（任意层级）的 .tga
 resource/**/*.tga
-
-HTTP-GitHub-Token.txt
-
-thirdParty/lib/assimp-vc143-mtd.lib
