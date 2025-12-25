@@ -14,51 +14,103 @@ Geometry::Geometry(
     const std::vector<float>& normals,
     const std::vector<float>& uvs,
     const std::vector<unsigned int>& indices
-    ) {
-    mIndicesCount = indices.size(); // 知道有多少个非负整型的数字
+) {
+    // 1. 初始化索引数量（后续绘制用）
+    mIndicesCount = static_cast<unsigned int>(indices.size());
 
-    // 1.4 创建VBO（位置+UV+法线）
-    glGenBuffers(1, &mPosVbo);
-    glBindBuffer(GL_ARRAY_BUFFER, mPosVbo);
-    glBufferData(GL_ARRAY_BUFFER, positions.size() * sizeof(float), positions.data(), GL_STATIC_DRAW);
-
-    glGenBuffers(1, &mUvVbo);
-    glBindBuffer(GL_ARRAY_BUFFER, mUvVbo);
-    glBufferData(GL_ARRAY_BUFFER, uvs.size() * sizeof(float), uvs.data(), GL_STATIC_DRAW);
-
-    glGenBuffers(1, &mNormalVbo);
-    glBindBuffer(GL_ARRAY_BUFFER, mNormalVbo);
-    glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(float), normals.data(), GL_STATIC_DRAW);
-
-    // 1.5 创建EBO（索引）
-    glGenBuffers(1, &mEbo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mEbo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
-
-    // 1.6 创建VAO（管理VBO/EBO状态）
+    // 2. 【核心】先创建并绑定 VAO（所有 VBO/EBO 配置都将被 VAO 记录）
     glGenVertexArrays(1, &mVao);
     glBindVertexArray(mVao);
 
-    // 绑定位置VBO，设置顶点属性（location=0：位置，3个float）
+    // 3. 配置位置 VBO（location = 0）
+    glGenBuffers(1, &mPosVbo);
     glBindBuffer(GL_ARRAY_BUFFER, mPosVbo);
+    // 传入位置数据到 VBO
+    glBufferData(GL_ARRAY_BUFFER,
+        positions.size() * sizeof(float),
+        positions.data(),
+        GL_STATIC_DRAW);
+    // 步骤1：配置顶点属性格式（3个float，步长为单个顶点字节数，偏移0）
+    glVertexAttribPointer(0,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        3 * sizeof(float),
+        (void*)0);
+    // 步骤2：启用该顶点属性（配置完成后启用，规范顺序）
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    // 解绑当前 VBO（避免后续操作污染，VAO 已记录关联关系）
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    // 绑定UV VBO，设置顶点属性（location=1：UV，2个float）
+    // 4. 配置 UV VBO（location = 1）
+    glGenBuffers(1, &mUvVbo);
     glBindBuffer(GL_ARRAY_BUFFER, mUvVbo);
+    glBufferData(GL_ARRAY_BUFFER,
+        uvs.size() * sizeof(float),
+        uvs.data(),
+        GL_STATIC_DRAW);
+    glVertexAttribPointer(1,
+        2,
+        GL_FLOAT,
+        GL_FALSE,
+        2 * sizeof(float),
+        (void*)0);
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    // 绑定法线VBO, 设置顶点属性（location=2：法线，3个float)
+    // 5. 配置法线 VBO（location = 2）
+    glGenBuffers(1, &mNormalVbo);
     glBindBuffer(GL_ARRAY_BUFFER, mNormalVbo);
+    glBufferData(GL_ARRAY_BUFFER,
+        normals.size() * sizeof(float),
+        normals.data(),
+        GL_STATIC_DRAW);
+    glVertexAttribPointer(2,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        3 * sizeof(float),
+        (void*)0);
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    // 绑定EBO（VAO会记录EBO状态）
+    // 6. 配置 EBO（索引缓冲区，VAO 绑定期间绑定 EBO 会被 VAO 记录）
+    glGenBuffers(1, &mEbo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mEbo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+        indices.size() * sizeof(unsigned int),
+        indices.data(),
+        GL_STATIC_DRAW);
+    // 注意：EBO 无需提前解绑！VAO 绑定状态下，GL_ELEMENT_ARRAY_BUFFER 的绑定会被 VAO 持久化；
+    // 若此时解绑 EBO，VAO 会记录「空的 EBO 绑定」，导致绘制失败
 
-    // 解绑VAO（避免后续操作污染）
+    // 7. 最后解绑 VAO（核心：VAO 解绑后，后续操作不会污染 VAO 内的状态）
     glBindVertexArray(0);
+
+    // 8. 清理上下文残留的 EBO 绑定（可选，但推荐，避免影响后续其他 Buffer 操作）
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+    /***********************************************************/
+    /*          Buffer 数据流程
+	* VBO/EBO 数据流程：CPU 内存 --> 显存（GPU 内存）
+	* 这里采样的是分离的VBO形式，每种属性一个VBO；推荐使用一个VBO存储所有属性以减少绑定次数
+	* 一个属性传入的流程如下：
+	* 1. 生成 VBO             glGenBuffers: 在GPU显存中申请一块缓冲区。
+	* 2. 绑定 VBO 到目标     glBindBuffer: 绑定到 GL_ARRAY_BUFFER 目标。将该缓冲区标记为“活跃”。
+	* 3. 传输数据到 VBO      glBufferData: CPU内存 --> 显存。将包含顶点数据的数组复制进当前“活跃”的缓冲区。
+	* 4. 配置顶点属性格式    glVertexAttribPointer: 配置顶点属性格式，告诉OpenGL如何解析VBO数据。
+                                                    “告诉 OpenGL：当渲染时，从这个 VBO 的显存里，按这个规则读数据。
+	* 5. 启用顶点属性        glEnableVertexAttribArray: 启用该属性，相当于接上管子的水龙头打开了，前一步是接管子。
+	* 6. 解绑 VBO           （可选，避免污染，VAO已记录关联关系）
+    
+    
+    * 解绑的逻辑:
+    * 1、VBO 可以在配置完成后立即解绑（无需等 VAO 解绑）。这里每个 VBO 配置完成后调用 glBindBuffer(GL_ARRAY_BUFFER, 0)，
+         是为了避免后续代码（如其他 VBO 配置）误操作当前绑定的 VBO。
+    * 2、EBO 必须等 VAO 解绑后，才能清理上下文的 EBO 绑定（VAO 绑定期间解绑 EBO 会导致 VAO 记录空的 EBO）。
+         VAO 绑定期间，GL_ELEMENT_ARRAY_BUFFER 的绑定状态是「VAO 的一部分」—— 如果此时解绑 EBO，VAO 会把「当前绑定的 EBO = 空」记录下来；
+    * 3、所有 VBO/EBO 配置完成后执行，保存所有配置，避免后续操作污染 VAO 状态。    
+    */
 }
 
 // 析构函数：释放OpenGL资源（必须在OpenGL上下文有效时调用）
